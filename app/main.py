@@ -33,6 +33,25 @@ async def lifespan(app: FastAPI):
     await init_db()
     logger.info("Database initialized")
 
+    # Auto-seed: if database is empty, fetch Reddit data automatically
+    if not _IS_VERCEL:
+        try:
+            from sqlalchemy import text
+            from app.db.session import async_session_factory
+            async with async_session_factory() as session:
+                row = await session.execute(text("SELECT COUNT(*) FROM documents"))
+                doc_count = row.scalar() or 0
+            if doc_count == 0:
+                logger.info("Database is empty, auto-seeding Reddit data...")
+                from app.api.seed import seed_reddit_data
+                async with async_session_factory() as session:
+                    await seed_reddit_data(session)
+                logger.info("Auto-seed completed")
+            else:
+                logger.info("Database already has %d docs, skipping auto-seed", doc_count)
+        except Exception:
+            logger.exception("Auto-seed failed, dashboard will be empty until manual seed")
+
     # Skip scheduler on Vercel (serverless, no background process, no scikit-learn)
     scheduler = None
     if not _IS_VERCEL:
