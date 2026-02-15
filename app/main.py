@@ -32,13 +32,17 @@ async def lifespan(app: FastAPI):
     await init_db()
     logger.info("Database initialized")
 
-    scheduler = start_scheduler()
+    # Skip scheduler on Vercel (serverless has no persistent background process)
+    scheduler = None
+    if not os.environ.get("VERCEL"):
+        scheduler = start_scheduler()
 
     yield
 
     # Shutdown
-    scheduler.shutdown(wait=False)
-    logger.info("Scheduler stopped")
+    if scheduler:
+        scheduler.shutdown(wait=False)
+        logger.info("Scheduler stopped")
 
 
 app = FastAPI(

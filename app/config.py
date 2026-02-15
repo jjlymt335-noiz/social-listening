@@ -2,7 +2,11 @@ import os
 
 from pydantic_settings import BaseSettings
 
-_db_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "social_listening.db")
+# Vercel serverless: only /tmp is writable
+if os.environ.get("VERCEL"):
+    _db_path = "/tmp/social_listening.db"
+else:
+    _db_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "social_listening.db")
 
 
 class Settings(BaseSettings):
