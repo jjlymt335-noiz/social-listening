@@ -780,14 +780,58 @@ async function showAspectDocs(aspect, sentiment) {
   }
 }
 
+let _seedPollTimer = null;
+
 function loadAll() {
   loadEvents();
   loadDailyMetrics();
   loadAspectMetrics();
 }
 
+async function loadAllAndPoll() {
+  loadAll();
+  // Check if data is empty (backend may still be seeding)
+  try {
+    const res = await fetch(`${API}/metrics/daily?brand=${encodeURIComponent(getBrand())}&limit=1`);
+    const data = await res.json();
+    if (data.length === 0) {
+      showSeedingBanner(true);
+      if (!_seedPollTimer) {
+        _seedPollTimer = setInterval(async () => {
+          const r = await fetch(`${API}/metrics/daily?brand=${encodeURIComponent(getBrand())}&limit=1`);
+          const d = await r.json();
+          if (d.length > 0) {
+            clearInterval(_seedPollTimer);
+            _seedPollTimer = null;
+            showSeedingBanner(false);
+            loadAll();
+          }
+        }, 5000);
+      }
+    } else {
+      showSeedingBanner(false);
+    }
+  } catch (e) { /* ignore */ }
+}
+
+function showSeedingBanner(show) {
+  let banner = document.getElementById('seedingBanner');
+  if (show && !banner) {
+    banner = document.createElement('div');
+    banner.id = 'seedingBanner';
+    banner.style.cssText = 'background:#1e3a5f;border:1px solid #58a6ff44;border-radius:10px;padding:16px 24px;margin:0 24px 16px;display:flex;align-items:center;gap:12px;';
+    banner.innerHTML = '<div class="spinner" style="width:20px;height:20px;border:3px solid #58a6ff33;border-top:3px solid #58a6ff;border-radius:50%;animation:spin 1s linear infinite;flex-shrink:0;"></div><div><div style="color:#58a6ff;font-weight:600;font-size:14px;">正在加载数据...</div><div style="color:#8b92a5;font-size:12px;margin-top:2px;">后台正在从Reddit抓取最新数据，预计1-2分钟，请稍候</div></div>';
+    const style = document.createElement('style');
+    style.textContent = '@keyframes spin{to{transform:rotate(360deg)}}';
+    document.head.appendChild(style);
+    document.querySelector('.grid-1,.grid-2')?.parentNode.insertBefore(banner, document.querySelector('.grid-1,.grid-2'));
+  } else if (!show && banner) {
+    banner.remove();
+  }
+}
+
 document.getElementById('brandSelect').addEventListener('change', loadAll);
-loadAll();
+loadAllAndPoll();
 setInterval(loadAll, 120000);
 </script>
 </body>
