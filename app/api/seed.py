@@ -494,7 +494,9 @@ async def seed_reddit_data(session: AsyncSession = Depends(get_session)):
             "created": created, "text": entry["text"], "author": entry["author"],
         })
 
-    # ===== 5. Group by aspect and create events =====
+    # ===== 5. Group by aspect and create events (clear old first) =====
+    await session.execute(text("DELETE FROM event_docs"))
+    await session.execute(text("DELETE FROM events"))
     # Use both negative docs AND neutral docs about problems to create events
     problem_docs = [d for d in doc_records if d["sentiment"] == "neg"]
     # Also include neutral docs for problem-related aspects
@@ -561,7 +563,10 @@ async def seed_reddit_data(session: AsyncSession = Depends(get_session)):
         for doc in cluster_docs:
             session.add(EventDoc(event_id=event_id, doc_id=doc["doc_id"]))
 
-    # ===== 6. Daily metrics =====
+    # ===== 6. Daily metrics (clear old data first) =====
+    await session.execute(text("DELETE FROM daily_metrics"))
+    await session.execute(text("DELETE FROM daily_aspect_metrics"))
+
     date_groups = {}
     for doc in doc_records:
         d = doc["created"].date()
