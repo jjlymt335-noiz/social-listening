@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>社交舆情监控看板</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif; background: #0f1117; color: #e1e4e8; }
+
+  .header {
+    background: linear-gradient(135deg, #1a1f36 0%, #252b48 100%);
+    padding: 20px 32px;
+    border-bottom: 1px solid #2d3348;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .header h1 { font-size: 20px; font-weight: 600; }
+  .header .brand-select {
+    background: #2d3348; border: 1px solid #444c6a; color: #e1e4e8;
+    padding: 8px 16px; border-radius: 8px; font-size: 14px;
+  }
+
+  .stats-row {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px;
+    padding: 24px 32px;
+  }
+  .stat-card {
+    background: #1a1f36; border-radius: 12px; padding: 20px;
+    border: 1px solid #2d3348;
+  }
+  .stat-card .label { font-size: 12px; color: #8b92a5; letter-spacing: 1px; }
+  .stat-card .desc { font-size: 11px; color: #6b7280; margin-top: 2px; }
+  .stat-card .value { font-size: 32px; font-weight: 700; margin-top: 8px; }
+  .stat-card .value.p0 { color: #f85149; }
+  .stat-card .value.events { color: #58a6ff; }
+  .stat-card .value.neg { color: #f0883e; }
+  .stat-card .value.vol { color: #56d364; }
+
+  .grid-2 {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+    padding: 0 32px 24px;
+  }
+  .grid-1 { padding: 0 32px 24px; }
+
+  .card {
+    background: #1a1f36; border-radius: 12px; padding: 20px;
+    border: 1px solid #2d3348;
+  }
+  .card h3 { font-size: 14px; color: #8b92a5; margin-bottom: 16px; letter-spacing: 1px; }
+
+  .event-list { max-height: 420px; overflow-y: auto; }
+  .event-item {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px; border-radius: 8px; margin-bottom: 8px;
+    background: #252b48; cursor: pointer; transition: background 0.2s;
+  }
+  .event-item:hover { background: #2d3554; }
+
+  .severity-badge {
+    padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 700;
+    min-width: 36px; text-align: center;
+  }
+  .severity-badge.P0 { background: #f8514933; color: #f85149; }
+  .severity-badge.P1 { background: #f0883e33; color: #f0883e; }
+  .severity-badge.P2 { background: #58a6ff33; color: #58a6ff; }
+
+  .event-info { flex: 1; }
+  .event-info .type { font-size: 14px; font-weight: 600; }
+  .event-info .meta { font-size: 12px; color: #8b92a5; margin-top: 2px; }
+
+  .status-badge {
+    padding: 3px 8px; border-radius: 4px; font-size: 11px; white-space: nowrap;
+  }
+  .status-badge.open { background: #56d36433; color: #56d364; }
+  .status-badge.monitoring { background: #58a6ff33; color: #58a6ff; }
+  .status-badge.cooling { background: #f0883e33; color: #f0883e; }
+  .status-badge.closed { background: #48484833; color: #8b92a5; }
+
+  .chart-container { position: relative; height: 280px; }
+
+  .empty-state {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    height: 200px; color: #8b92a5; font-size: 14px;
+  }
+
+  .aspect-bar {
+    display: flex; align-items: center; gap: 12px; margin-bottom: 10px;
+  }
+  .aspect-bar .name { width: 120px; font-size: 13px; text-align: right; color: #8b92a5; }
+  .aspect-bar .bar-bg {
+    flex: 1; height: 24px; background: #252b48; border-radius: 4px; overflow: hidden;
+    position: relative; cursor: pointer;
+  }
+  .aspect-bar .bar-bg:hover { outline: 1px solid #58a6ff88; }
+  .aspect-bar .bar-bg.neg-bar:hover { outline: 1px solid #f8514988; }
+  .aspect-bar .bar-fill {
+    height: 100%; border-radius: 4px; transition: width 0.5s; pointer-events: none;
+  }
+  .aspect-bar .bar-fill.neg { background: linear-gradient(90deg, #f85149, #f0883e); }
+  .aspect-bar .bar-fill.total { background: linear-gradient(90deg, #58a6ff, #56d364); }
+  .aspect-bar .count { width: 50px; font-size: 12px; color: #8b92a5; }
+
+  .refresh-btn {
+    background: #58a6ff22; border: 1px solid #58a6ff44; color: #58a6ff;
+    padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 13px;
+  }
+  .refresh-btn:hover { background: #58a6ff33; }
+
+  .seed-btn {
+    background: #56d36422; border: 1px solid #56d36444; color: #56d364;
+    padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 13px;
+  }
+  .seed-btn:hover { background: #56d36433; }
+
+  /* ===== 事件详情弹窗 ===== */
+  .modal-overlay {
+    display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0,0,0,0.7); z-index: 1000; justify-content: center; align-items: flex-start;
+    padding-top: 40px; overflow-y: auto;
+  }
+  .modal-overlay.active { display: flex; }
+
+  .modal {
+    background: #1a1f36; border-radius: 16px; width: 90%; max-width: 800px;
+    border: 1px solid #2d3348; margin-bottom: 40px; animation: slideUp 0.3s ease;
+  }
+  @keyframes slideUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .modal-header {
+    padding: 24px; border-bottom: 1px solid #2d3348;
+    display: flex; justify-content: space-between; align-items: flex-start;
+  }
+  .modal-header .title-row { display: flex; align-items: center; gap: 12px; }
+  .modal-header h2 { font-size: 18px; font-weight: 600; }
+  .modal-close {
+    background: none; border: none; color: #8b92a5; font-size: 24px;
+    cursor: pointer; padding: 4px 8px; border-radius: 4px;
+  }
+  .modal-close:hover { background: #252b48; color: #e1e4e8; }
+
+  .modal-summary {
+    padding: 20px 24px; background: #252b48; margin: 16px 24px;
+    border-radius: 8px; font-size: 14px; line-height: 1.6; color: #c9d1d9;
+  }
+  .modal-summary .summary-label { font-size: 12px; color: #8b92a5; margin-bottom: 8px; font-weight: 600; }
+
+  .modal-stats {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+    padding: 0 24px; margin-bottom: 20px;
+  }
+  .modal-stat {
+    background: #252b48; border-radius: 8px; padding: 12px; text-align: center;
+  }
+  .modal-stat .s-label { font-size: 11px; color: #8b92a5; }
+  .modal-stat .s-value { font-size: 18px; font-weight: 700; margin-top: 4px; }
+
+  .modal-posts { padding: 0 24px 24px; }
+  .modal-posts h3 { font-size: 14px; color: #8b92a5; margin-bottom: 12px; }
+
+  .post-item {
+    background: #252b48; border-radius: 8px; padding: 14px 16px; margin-bottom: 10px;
+    border-left: 3px solid #444c6a;
+  }
+  .post-item.neg { border-left-color: #f85149; }
+  .post-item.pos { border-left-color: #56d364; }
+  .post-item.neu { border-left-color: #58a6ff; }
+
+  .post-header {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap;
+  }
+  .post-avatar {
+    width: 28px; height: 28px; border-radius: 50%; background: #444c6a;
+    display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700;
+    flex-shrink: 0;
+  }
+  .post-user { font-size: 13px; font-weight: 600; color: #58a6ff; }
+  .post-platform {
+    font-size: 11px; color: #8b92a5; background: #1a1f36; padding: 2px 6px;
+    border-radius: 4px; margin-left: auto;
+  }
+  .post-sentiment {
+    font-size: 11px; padding: 2px 6px; border-radius: 4px; font-weight: 600;
+  }
+  .post-sentiment.neg { background: #f8514933; color: #f85149; }
+  .post-sentiment.pos { background: #56d36433; color: #56d364; }
+  .post-sentiment.neu { background: #58a6ff33; color: #58a6ff; }
+
+  .post-text { font-size: 14px; line-height: 1.6; color: #c9d1d9; word-break: break-word; }
+  .post-time { font-size: 11px; color: #6b7280; margin-top: 8px; }
+
+  .loading-posts { text-align: center; padding: 40px; color: #8b92a5; }
+
+  /* 状态筛选标签 */
+  .filter-tabs {
+    display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap;
+  }
+  .filter-tab {
+    padding: 4px 12px; border-radius: 6px; font-size: 12px; cursor: pointer;
+    background: #252b48; color: #8b92a5; border: 1px solid transparent;
+    transition: all 0.2s;
+  }
+  .filter-tab:hover { background: #2d3554; }
+  .filter-tab.active { background: #58a6ff22; color: #58a6ff; border-color: #58a6ff44; }
+
+  /* 帖子中文摘要 */
+  .post-summary-cn {
+    background: #1a1f36; border-radius: 4px; padding: 6px 10px; margin-bottom: 8px;
+    font-size: 13px; color: #e1e4e8; font-weight: 600; line-height: 1.5;
+  }
+
+  /* 维度图表头 */
+  .aspect-header {
+    display: flex; align-items: center; gap: 12px; margin-bottom: 12px;
+    padding-bottom: 8px; border-bottom: 1px solid #2d3348;
+  }
+  .aspect-header .name { width: 120px; font-size: 11px; text-align: right; color: #6b7280; }
+  .aspect-header .bar-label { flex: 1; font-size: 11px; color: #6b7280; }
+  .aspect-header .count-label { width: 50px; font-size: 11px; color: #6b7280; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>社交舆情监控看板</h1>
+  <div style="display:flex;gap:12px;align-items:center;">
+    <select id="brandSelect" class="brand-select">
+      <option value="Trip.com">Trip.com</option>
+    </select>
+    <button class="seed-btn" onclick="seedData()">抓取Reddit数据</button>
+    <button class="refresh-btn" onclick="loadAll()">刷新</button>
+  </div>
+</div>
+
+<!-- 顶部数据概览：一眼看清品牌舆情全貌 -->
+<div class="stats-row">
+  <div class="stat-card">
+    <div class="label">活跃事件</div>
+    <div class="desc">当前未关闭的舆情事件数量</div>
+    <div class="value events" id="statEvents">0</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">P0 紧急告警</div>
+    <div class="desc">需要立即处理的高危事件</div>
+    <div class="value p0" id="statP0">0</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">负面比例 (30天)</div>
+    <div class="desc">近30天负面帖子占总量的百分比</div>
+    <div class="value neg" id="statNegRatio">-</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">总声量 (30天)</div>
+    <div class="desc">近30天社交平台提及总次数</div>
+    <div class="value vol" id="statVolume">0</div>
+  </div>
+</div>
+
+<!-- 图表 + 事件列表 -->
+<div class="grid-2">
+  <div class="card">
+    <h3>每日声量与情感分布 (30天)</h3>
+    <div class="chart-container">
+      <canvas id="dailyChart"></canvas>
+    </div>
+  </div>
+  <div class="card">
+    <h3>最近舆情事件 <span style="font-size:11px;color:#6b7280;font-weight:400;">点击查看详情与原帖</span></h3>
+    <div class="filter-tabs" id="filterTabs">
+      <span class="filter-tab active" data-filter="all" onclick="filterEvents('all')">全部</span>
+      <span class="filter-tab" data-filter="not-closed" onclick="filterEvents('not-closed')">未关闭</span>
+      <span class="filter-tab" data-filter="open" onclick="filterEvents('open')">进行中</span>
+      <span class="filter-tab" data-filter="monitoring" onclick="filterEvents('monitoring')">监控中</span>
+      <span class="filter-tab" data-filter="closed" onclick="filterEvents('closed')">已关闭</span>
+    </div>
+    <div class="event-list" id="eventList">
+      <div class="empty-state">暂无检测到的舆情事件</div>
+    </div>
+  </div>
+</div>
+
+<!-- 话题维度分析 -->
+<div class="grid-1">
+  <div class="card">
+    <h3>各话题维度帖子量对比 <span style="font-size:11px;color:#6b7280;font-weight:400;">每个话题有多少帖子提及，其中多少是负面的</span></h3>
+    <div id="aspectBars">
+      <div class="empty-state">暂无维度数据</div>
+    </div>
+  </div>
+</div>
+
+<!-- 事件详情弹窗 -->
+<div class="modal-overlay" id="modalOverlay" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div class="modal-header">
+      <div>
+        <div class="title-row">
+          <span class="severity-badge" id="modalSeverity"></span>
+          <h2 id="modalTitle"></h2>
+        </div>
+        <div style="margin-top:8px;">
+          <span class="status-badge" id="modalStatus"></span>
+          <span style="font-size:12px;color:#8b92a5;margin-left:8px;" id="modalRegion"></span>
+        </div>
+      </div>
+      <button class="modal-close" onclick="closeModal()">&times;</button>
+    </div>
+
+    <div class="modal-summary">
+      <div class="summary-label">AI 事件概括</div>
+      <div id="modalSummaryText">-</div>
+    </div>
+
+    <div class="modal-stats">
+      <div class="modal-stat">
+        <div class="s-label">聚类帖子数</div>
+        <div class="s-value" id="modalCluster" style="color:#58a6ff">-</div>
+      </div>
+      <div class="modal-stat">
+        <div class="s-label">负面比例</div>
+        <div class="s-value" id="modalNeg" style="color:#f85149">-</div>
+      </div>
+      <div class="modal-stat">
+        <div class="s-label">开始时间</div>
+        <div class="s-value" id="modalStart" style="color:#8b92a5;font-size:13px">-</div>
+      </div>
+      <div class="modal-stat">
+        <div class="s-label">最后更新</div>
+        <div class="s-value" id="modalUpdate" style="color:#8b92a5;font-size:13px">-</div>
+      </div>
+    </div>
+
+    <div class="modal-posts">
+      <h3>关联原始帖子 <span style="font-size:11px;color:#6b7280;font-weight:400;">聚类命中的社交平台用户原帖</span></h3>
+      <div id="modalPostList">
+        <div class="loading-posts">加载中...</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '';
+let dailyChart = null;
+let allEvents = [];  // Store for filtering
+let currentFilter = 'all';
+
+const EVENT_TYPE_CN = {
+  'A': '航班延误/取消', 'B': '酒店预订问题', 'C': '退款纠纷',
+  'D': 'App技术故障', 'E': '客服体验差评'
+};
+const STATUS_CN = {
+  'open': '进行中', 'monitoring': '监控中', 'cooling': '冷却中', 'closed': '已关闭'
+};
+const REGION_CN = {
+  'JAPAN': '日本', 'KOREA': '韩国', 'THAILAND': '泰国',
+  'SEA_OTHER': '东南亚', 'EAST_ASIA_OTHER': '东亚其他', 'SOUTH_ASIA_OTHER': '南亚',
+  'GLOBAL': '全球'
+};
+const SENTIMENT_CN = { 'neg': '负面', 'pos': '正面', 'neu': '中性' };
+const ASPECT_CN = {
+  'delay': '航班延误', 'cancellation': '航班取消', 'refund': '退款',
+  'app_bug': 'App故障', 'booking': '预订', 'customer_service': '客服',
+  'pricing': '价格', 'check_in': '入住/值机'
+};
+
+function getBrand() {
+  return document.getElementById('brandSelect').value;
+}
+
+async function seedData() {
+  try {
+    const btn = document.querySelector('.seed-btn');
+    btn.textContent = '抓取中...';
+    btn.disabled = true;
+    const res = await fetch(`${API}/seed-reddit`, { method: 'POST' });
+    const data = await res.json();
+    btn.textContent = '抓取Reddit数据';
+    btn.disabled = false;
+    alert(data.message || '完成');
+    loadAll();
+  } catch (err) {
+    console.error('Seed failed:', err);
+    document.querySelector('.seed-btn').textContent = '抓取Reddit数据';
+    document.querySelector('.seed-btn').disabled = false;
+  }
+}
+
+async function loadEvents() {
+  try {
+    const res = await fetch(`${API}/events?brand=${encodeURIComponent(getBrand())}`);
+    allEvents = await res.json();
+
+    const active = allEvents.filter(e => e.status !== 'closed');
+    const p0 = active.filter(e => e.severity === 'P0');
+
+    document.getElementById('statEvents').textContent = active.length;
+    document.getElementById('statP0').textContent = p0.length;
+
+    renderEvents();
+  } catch (err) {
+    console.error('Failed to load events:', err);
+  }
+}
+
+function filterEvents(filter) {
+  currentFilter = filter;
+  document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
+  document.querySelector(`.filter-tab[data-filter="${filter}"]`).classList.add('active');
+  renderEvents();
+}
+
+function renderEvents() {
+  const list = document.getElementById('eventList');
+  let filtered = allEvents;
+  if (currentFilter === 'not-closed') filtered = allEvents.filter(e => e.status !== 'closed');
+  else if (currentFilter !== 'all') filtered = allEvents.filter(e => e.status === currentFilter);
+
+  if (filtered.length === 0) {
+    const msg = allEvents.length === 0
+      ? '暂无检测到的舆情事件<br><small style="color:#6b7280">点击右上角"抓取Reddit数据"开始</small>'
+      : '当前筛选条件下没有事件';
+    list.innerHTML = `<div class="empty-state">${msg}</div>`;
+    return;
+  }
+
+  list.innerHTML = filtered.slice(0, 20).map(e => `
+    <div class="event-item" onclick='openEventDetail(${JSON.stringify(e).replace(/'/g, "&#39;")})'>
+      <span class="severity-badge ${e.severity}">${e.severity}</span>
+      <div class="event-info">
+        <div class="type">${EVENT_TYPE_CN[e.event_type] || '类型'+e.event_type} — ${REGION_CN[e.region_group] || e.region_group || '全球'}</div>
+        <div class="meta">${e.cluster_size} 条帖子 · ${(e.neg_ratio * 100).toFixed(0)}% 负面 · ${new Date(e.start_time).toLocaleString('zh-CN')}</div>
+      </div>
+      <span class="status-badge ${e.status}">${STATUS_CN[e.status] || e.status}</span>
+    </div>
+  `).join('');
+}
+
+async function openEventDetail(event) {
+  const overlay = document.getElementById('modalOverlay');
+  overlay.classList.add('active');
+
+  const sev = document.getElementById('modalSeverity');
+  sev.textContent = event.severity;
+  sev.className = `severity-badge ${event.severity}`;
+
+  document.getElementById('modalTitle').textContent =
+    (EVENT_TYPE_CN[event.event_type] || '类型' + event.event_type) + ' — ' +
+    (REGION_CN[event.region_group] || event.region_group || '全球');
+
+  const statusEl = document.getElementById('modalStatus');
+  statusEl.textContent = STATUS_CN[event.status] || event.status;
+  statusEl.className = `status-badge ${event.status}`;
+
+  document.getElementById('modalRegion').textContent =
+    '区域：' + (REGION_CN[event.region_group] || event.region_group);
+
+  document.getElementById('modalSummaryText').textContent =
+    event.summary || '暂无 AI 概括（系统运行引擎后自动生成）';
+
+  document.getElementById('modalCluster').textContent = event.cluster_size;
+  document.getElementById('modalNeg').textContent = (event.neg_ratio * 100).toFixed(1) + '%';
+  document.getElementById('modalStart').textContent = new Date(event.start_time).toLocaleString('zh-CN');
+  document.getElementById('modalUpdate').textContent = new Date(event.last_update_time).toLocaleString('zh-CN');
+
+  const postList = document.getElementById('modalPostList');
+  postList.innerHTML = '<div class="loading-posts">加载关联帖子中...</div>';
+
+  try {
+    const res = await fetch(`${API}/events/${event.event_id}/docs`);
+    const docs = await res.json();
+
+    if (docs.length === 0) {
+      postList.innerHTML = '<div class="loading-posts" style="color:#6b7280">该事件暂无关联的原始帖子</div>';
+      return;
+    }
+
+    postList.innerHTML = docs.map(d => {
+      const initial = (d.platform || '?')[0].toUpperCase();
+      const subreddit = d.topic_l1 || '';
+      const aspectLabel = ASPECT_CN[d.aspect] || d.aspect || '';
+      const engLabel = d.engagement_count > 0 ? ` · ${d.engagement_count} 互动` : '';
+      const summaryHtml = d.summary_cn
+        ? `<div class="post-summary-cn">${escapeHtml(d.summary_cn)}</div>`
+        : '';
+      // Truncate long original text for display
+      const originalText = d.text_clean.length > 500
+        ? d.text_clean.substring(0, 500) + '...'
+        : d.text_clean;
+      return `
+      <div class="post-item ${d.sentiment}">
+        <div class="post-header">
+          <div class="post-avatar">${initial}</div>
+          <span class="post-user">${subreddit || d.platform}</span>
+          ${aspectLabel ? `<span style="font-size:11px;color:#6b7280;background:#1a1f36;padding:2px 6px;border-radius:4px;">${aspectLabel}</span>` : ''}
+          <span class="post-platform">${d.platform}</span>
+          <span class="post-sentiment ${d.sentiment}">${SENTIMENT_CN[d.sentiment] || d.sentiment}</span>
+        </div>
+        ${summaryHtml}
+        <div class="post-text" style="font-size:13px;color:#9ca3af;">${escapeHtml(originalText)}</div>
+        <div class="post-time">${new Date(d.created_at).toLocaleString('zh-CN')} · ${d.country_code}${engLabel}</div>
+      </div>`;
+    }).join('');
+  } catch (err) {
+    postList.innerHTML = '<div class="loading-posts" style="color:#f85149">加载帖子失败</div>';
+    console.error('Failed to load event docs:', err);
+  }
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+function closeModal() {
+  document.getElementById('modalOverlay').classList.remove('active');
+  document.querySelector('.modal-stats').style.display = '';
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+async function loadDailyMetrics() {
+  try {
+    const res = await fetch(`${API}/metrics/daily?brand=${encodeURIComponent(getBrand())}&limit=30`);
+    const data = await res.json();
+
+    if (data.length === 0) {
+      document.getElementById('statNegRatio').textContent = '-';
+      document.getElementById('statVolume').textContent = '0';
+      return;
+    }
+
+    const sorted = data.sort((a, b) => a.date.localeCompare(b.date));
+
+    const totalVol = sorted.reduce((s, d) => s + d.volume_total, 0);
+    const totalNeg = sorted.reduce((s, d) => s + d.neg_count, 0);
+    document.getElementById('statVolume').textContent = totalVol.toLocaleString();
+    document.getElementById('statNegRatio').textContent = totalVol > 0 ? (totalNeg / totalVol * 100).toFixed(1) + '%' : '-';
+
+    const labels = sorted.map(d => {
+      const parts = d.date.split('-');
+      return parts[1] + '/' + parts[2];
+    });
+    const posData = sorted.map(d => d.pos_count);
+    const neuData = sorted.map(d => d.neu_count);
+    const negData = sorted.map(d => d.neg_count);
+
+    if (dailyChart) dailyChart.destroy();
+    dailyChart = new Chart(document.getElementById('dailyChart'), {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [
+          { label: '正面', data: posData, backgroundColor: '#56d364', borderRadius: 4 },
+          { label: '中性', data: neuData, backgroundColor: '#58a6ff', borderRadius: 4 },
+          { label: '负面', data: negData, backgroundColor: '#f85149', borderRadius: 4 },
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: '#8b92a5', font: { size: 11 } } } },
+        scales: {
+          x: { stacked: true, ticks: { color: '#8b92a5' }, grid: { color: '#2d3348' } },
+          y: { stacked: true, ticks: { color: '#8b92a5' }, grid: { color: '#2d3348' } }
+        }
+      }
+    });
+  } catch (err) {
+    console.error('Failed to load daily metrics:', err);
+  }
+}
+
+async function loadAspectMetrics() {
+  try {
+    const res = await fetch(`${API}/metrics/aspect?brand=${encodeURIComponent(getBrand())}&limit=30`);
+    const data = await res.json();
+
+    if (data.length === 0) {
+      document.getElementById('aspectBars').innerHTML = '<div class="empty-state">暂无维度数据</div>';
+      return;
+    }
+
+    const agg = {};
+    data.forEach(d => {
+      if (!agg[d.aspect]) agg[d.aspect] = { volume: 0, neg: 0 };
+      agg[d.aspect].volume += d.volume;
+      agg[d.aspect].neg += d.neg_count;
+    });
+
+    const aspects = Object.entries(agg)
+      .sort((a, b) => b[1].neg - a[1].neg)
+      .slice(0, 10);
+
+    const maxVol = Math.max(...aspects.map(a => a[1].volume));
+
+    const header = `
+      <div class="aspect-header">
+        <div class="name">话题</div>
+        <div class="bar-label" style="color:#56d364;">总提及量</div>
+        <div class="count-label">数量</div>
+        <div class="bar-label" style="max-width:200px;color:#f85149;">其中负面</div>
+        <div class="count-label">数量</div>
+      </div>`;
+
+    document.getElementById('aspectBars').innerHTML = header + aspects.map(([name, { volume, neg }]) => {
+      const negPct = volume > 0 ? (neg / volume * 100).toFixed(0) : 0;
+      return `
+      <div class="aspect-bar">
+        <div class="name">${ASPECT_CN[name] || name}</div>
+        <div class="bar-bg" onclick="showAspectDocs('${name}', null)" title="点击查看所有「${ASPECT_CN[name] || name}」帖子">
+          <div class="bar-fill total" style="width:${volume/maxVol*100}%"></div>
+        </div>
+        <div class="count">${volume}</div>
+        <div class="bar-bg neg-bar" style="max-width:200px" onclick="showAspectDocs('${name}', 'neg')" title="点击查看「${ASPECT_CN[name] || name}」负面帖子">
+          <div class="bar-fill neg" style="width:${volume>0 ? neg/volume*100 : 0}%"></div>
+        </div>
+        <div class="count" style="color:#f85149">${neg} <span style="font-size:10px;color:#6b7280">(${negPct}%)</span></div>
+      </div>`;
+    }).join('');
+  } catch (err) {
+    console.error('Failed to load aspect metrics:', err);
+  }
+}
+
+async function showAspectDocs(aspect, sentiment) {
+  const overlay = document.getElementById('modalOverlay');
+  overlay.classList.add('active');
+
+  const label = ASPECT_CN[aspect] || aspect;
+  const sentimentLabel = sentiment === 'neg' ? '负面' : '全部';
+
+  // Set modal header
+  const sev = document.getElementById('modalSeverity');
+  sev.textContent = sentimentLabel;
+  sev.className = 'severity-badge ' + (sentiment === 'neg' ? 'P1' : 'P2');
+  document.getElementById('modalTitle').textContent = `「${label}」话题帖子`;
+
+  const statusEl = document.getElementById('modalStatus');
+  statusEl.textContent = sentiment === 'neg' ? '负面帖子' : '所有帖子';
+  statusEl.className = 'status-badge ' + (sentiment === 'neg' ? 'open' : 'monitoring');
+  document.getElementById('modalRegion').textContent = '';
+
+  document.getElementById('modalSummaryText').textContent =
+    sentiment === 'neg'
+      ? `以下为「${label}」话题中被判定为负面情感的用户帖子`
+      : `以下为所有涉及「${label}」话题的用户帖子`;
+
+  // Hide stats row for aspect view
+  document.querySelector('.modal-stats').style.display = 'none';
+
+  const postList = document.getElementById('modalPostList');
+  postList.innerHTML = '<div class="loading-posts">加载中...</div>';
+
+  try {
+    let url = `${API}/events/docs-by-aspect?brand=${encodeURIComponent(getBrand())}&aspect=${encodeURIComponent(aspect)}&limit=50`;
+    if (sentiment) url += `&sentiment=${sentiment}`;
+    const res = await fetch(url);
+    const docs = await res.json();
+
+    if (docs.length === 0) {
+      postList.innerHTML = '<div class="loading-posts" style="color:#6b7280">暂无相关帖子</div>';
+      return;
+    }
+
+    postList.innerHTML = docs.map(d => {
+      const initial = (d.platform || '?')[0].toUpperCase();
+      const subreddit = d.topic_l1 || '';
+      const engLabel = d.engagement_count > 0 ? ` · ${d.engagement_count} 互动` : '';
+      const summaryHtml = d.summary_cn
+        ? `<div class="post-summary-cn">${escapeHtml(d.summary_cn)}</div>`
+        : '';
+      const originalText = d.text_clean.length > 500
+        ? d.text_clean.substring(0, 500) + '...'
+        : d.text_clean;
+      return `
+      <div class="post-item ${d.sentiment}">
+        <div class="post-header">
+          <div class="post-avatar">${initial}</div>
+          <span class="post-user">${subreddit || d.platform}</span>
+          <span class="post-platform">${d.platform}</span>
+          <span class="post-sentiment ${d.sentiment}">${SENTIMENT_CN[d.sentiment] || d.sentiment}</span>
+        </div>
+        ${summaryHtml}
+        <div class="post-text" style="font-size:13px;color:#9ca3af;">${escapeHtml(originalText)}</div>
+        <div class="post-time">${new Date(d.created_at).toLocaleString('zh-CN')} · ${d.country_code}${engLabel}</div>
+      </div>`;
+    }).join('');
+  } catch (err) {
+    postList.innerHTML = '<div class="loading-posts" style="color:#f85149">加载帖子失败</div>';
+    console.error('Failed to load aspect docs:', err);
+  }
+}
+
+function loadAll() {
+  loadEvents();
+  loadDailyMetrics();
+  loadAspectMetrics();
+}
+
+document.getElementById('brandSelect').addEventListener('change', loadAll);
+loadAll();
+setInterval(loadAll, 120000);
+</script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+__pycache__
+*.pyc
+.env
+data/
+.git
+.gitignore
+*.egg-info
+.ruff_cache

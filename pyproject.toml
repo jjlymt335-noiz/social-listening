@@ -1,0 +1,41 @@
+[project]
+name = "social-listening"
+version = "0.1.0"
+description = "Overseas Social Listening System"
+requires-python = ">=3.11"
+dependencies = [
+    # Web framework
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    # Database (SQLite)
+    "sqlalchemy[asyncio]>=2.0",
+    "aiosqlite>=0.20",
+    # Scheduling
+    "apscheduler>=3.10",
+    # HTTP client (for Gemini API)
+    "httpx>=0.27",
+    # ML / NLP
+    "scikit-learn>=1.5",
+    "numpy>=1.26",
+    "langdetect>=1.0.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.5",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
