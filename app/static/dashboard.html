@@ -50,6 +50,20 @@
   .card h3 { font-size: 14px; color: #8b92a5; margin-bottom: 16px; letter-spacing: 1px; }
 
   .event-list { max-height: 420px; overflow-y: auto; }
+  .event-category-group { margin-bottom: 4px; }
+  .event-category-header {
+    font-size: 13px; font-weight: 600; color: #58a6ff; padding: 8px 4px 4px;
+    border-bottom: 1px solid #2d3348; margin-bottom: 6px;
+  }
+  .event-category-header .cat-code, .aspect-category-header .cat-code {
+    display: inline-block; width: 22px; height: 22px; line-height: 22px;
+    text-align: center; border-radius: 4px; font-size: 12px; font-weight: 700;
+    color: #fff; background: #58a6ff; margin-right: 6px;
+  }
+  .aspect-category-header {
+    font-size: 13px; font-weight: 600; color: #58a6ff; padding: 10px 4px 4px;
+    border-bottom: 1px solid #2d3348; margin-bottom: 4px; margin-top: 4px;
+  }
   .event-item {
     display: flex; align-items: center; gap: 12px;
     padding: 12px; border-radius: 8px; margin-bottom: 8px;
@@ -366,6 +380,17 @@ const ASPECT_CN = {
   'app_bug': 'App故障', 'booking': '预订', 'customer_service': '客服',
   'pricing': '价格', 'check_in': '入住/值机'
 };
+const CATEGORY_DEF = [
+  { code: 'A', label: '航班问题', aspects: ['delay', 'cancellation'] },
+  { code: 'B', label: '住宿/预订', aspects: ['booking', 'check_in'] },
+  { code: 'C', label: '资金纠纷', aspects: ['refund', 'pricing'] },
+  { code: 'D', label: '技术故障', aspects: ['app_bug'] },
+  { code: 'E', label: '服务质量', aspects: ['customer_service'] },
+];
+const ASPECT_TO_CAT = {};
+CATEGORY_DEF.forEach(c => c.aspects.forEach(a => ASPECT_TO_CAT[a] = c.code));
+const EVENT_TYPE_TO_CAT = {};
+CATEGORY_DEF.forEach(c => EVENT_TYPE_TO_CAT[c.code] = c);
 
 function getBrand() {
   return document.getElementById('brandSelect').value;
@@ -427,16 +452,33 @@ function renderEvents() {
     return;
   }
 
-  list.innerHTML = filtered.slice(0, 20).map(e => `
-    <div class="event-item" onclick='openEventDetail(${JSON.stringify(e).replace(/'/g, "&#39;")})'>
-      <span class="severity-badge ${e.severity}">${e.severity}</span>
-      <div class="event-info">
-        <div class="type">${EVENT_TYPE_CN[e.event_type] || '类型'+e.event_type} — ${REGION_CN[e.region_group] || e.region_group || '全球'}</div>
-        <div class="meta">${e.cluster_size} 条帖子 · ${(e.neg_ratio * 100).toFixed(0)}% 负面 · ${new Date(e.start_time).toLocaleString('zh-CN')}</div>
+  // Group events by A-E category
+  const grouped = {};
+  filtered.forEach(e => {
+    const cat = e.event_type || '?';
+    if (!grouped[cat]) grouped[cat] = [];
+    grouped[cat].push(e);
+  });
+
+  let html = '';
+  CATEGORY_DEF.forEach(cat => {
+    const events = grouped[cat.code];
+    if (!events || events.length === 0) return;
+    html += `<div class="event-category-group">
+      <div class="event-category-header"><span class="cat-code">${cat.code}</span> ${cat.label}</div>`;
+    html += events.map(e => `
+      <div class="event-item" onclick='openEventDetail(${JSON.stringify(e).replace(/'/g, "&#39;")})'>
+        <span class="severity-badge ${e.severity}">${e.severity}</span>
+        <div class="event-info">
+          <div class="type">${EVENT_TYPE_CN[e.event_type] || '类型'+e.event_type} — ${REGION_CN[e.region_group] || e.region_group || '全球'}</div>
+          <div class="meta">${e.cluster_size} 条帖子 · ${(e.neg_ratio * 100).toFixed(0)}% 负面 · ${new Date(e.start_time).toLocaleString('zh-CN')}</div>
+        </div>
+        <span class="status-badge ${e.status}">${STATUS_CN[e.status] || e.status}</span>
       </div>
-      <span class="status-badge ${e.status}">${STATUS_CN[e.status] || e.status}</span>
-    </div>
-  `).join('');
+    `).join('');
+    html += `</div>`;
+  });
+  list.innerHTML = html;
 }
 
 async function openEventDetail(event) {
@@ -612,11 +654,9 @@ async function loadAspectMetrics() {
       agg[d.aspect].neg += d.neg_count;
     });
 
-    const aspects = Object.entries(agg)
-      .sort((a, b) => b[1].neg - a[1].neg)
-      .slice(0, 10);
-
-    const maxVol = Math.max(...aspects.map(a => a[1].volume));
+    // Find global max for consistent bar scaling
+    const allVolumes = Object.values(agg).map(a => a.volume);
+    const maxVol = Math.max(...allVolumes, 1);
 
     const header = `
       <div class="aspect-header">
@@ -627,21 +667,30 @@ async function loadAspectMetrics() {
         <div class="count-label">数量</div>
       </div>`;
 
-    document.getElementById('aspectBars').innerHTML = header + aspects.map(([name, { volume, neg }]) => {
-      const negPct = volume > 0 ? (neg / volume * 100).toFixed(0) : 0;
-      return `
-      <div class="aspect-bar">
-        <div class="name">${ASPECT_CN[name] || name}</div>
-        <div class="bar-bg" onclick="showAspectDocs('${name}', null)" title="点击查看所有「${ASPECT_CN[name] || name}」帖子">
-          <div class="bar-fill total" style="width:${volume/maxVol*100}%"></div>
-        </div>
-        <div class="count">${volume}</div>
-        <div class="bar-bg neg-bar" style="max-width:200px" onclick="showAspectDocs('${name}', 'neg')" title="点击查看「${ASPECT_CN[name] || name}」负面帖子">
-          <div class="bar-fill neg" style="width:${volume>0 ? neg/volume*100 : 0}%"></div>
-        </div>
-        <div class="count" style="color:#f85149">${neg} <span style="font-size:10px;color:#6b7280">(${negPct}%)</span></div>
-      </div>`;
-    }).join('');
+    let barsHtml = header;
+    CATEGORY_DEF.forEach(cat => {
+      const catAspects = cat.aspects.filter(a => agg[a]);
+      if (catAspects.length === 0) return;
+      barsHtml += `<div class="aspect-category-header"><span class="cat-code">${cat.code}</span> ${cat.label}</div>`;
+      catAspects.sort((a, b) => (agg[b]?.neg || 0) - (agg[a]?.neg || 0));
+      barsHtml += catAspects.map(name => {
+        const { volume, neg } = agg[name];
+        const negPct = volume > 0 ? (neg / volume * 100).toFixed(0) : 0;
+        return `
+        <div class="aspect-bar">
+          <div class="name">${ASPECT_CN[name] || name}</div>
+          <div class="bar-bg" onclick="showAspectDocs('${name}', null)" title="点击查看所有「${ASPECT_CN[name] || name}」帖子">
+            <div class="bar-fill total" style="width:${volume/maxVol*100}%"></div>
+          </div>
+          <div class="count">${volume}</div>
+          <div class="bar-bg neg-bar" style="max-width:200px" onclick="showAspectDocs('${name}', 'neg')" title="点击查看「${ASPECT_CN[name] || name}」负面帖子">
+            <div class="bar-fill neg" style="width:${volume>0 ? neg/volume*100 : 0}%"></div>
+          </div>
+          <div class="count" style="color:#f85149">${neg} <span style="font-size:10px;color:#6b7280">(${negPct}%)</span></div>
+        </div>`;
+      }).join('');
+    });
+    document.getElementById('aspectBars').innerHTML = barsHtml;
   } catch (err) {
     console.error('Failed to load aspect metrics:', err);
   }
