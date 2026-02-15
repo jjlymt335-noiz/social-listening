@@ -658,14 +658,25 @@ async function showAspectDocs(aspect, sentiment) {
     let url = `${API}/events/docs-by-aspect?brand=${encodeURIComponent(getBrand())}&aspect=${encodeURIComponent(aspect)}&limit=50`;
     if (sentiment) url += `&sentiment=${sentiment}`;
     const res = await fetch(url);
-    const docs = await res.json();
+    let docs = await res.json();
+    let fallbackNote = '';
+
+    // If filtering by neg but no results, fall back to all docs for this aspect
+    if (docs.length === 0 && sentiment) {
+      const fallbackUrl = `${API}/events/docs-by-aspect?brand=${encodeURIComponent(getBrand())}&aspect=${encodeURIComponent(aspect)}&limit=50`;
+      const res2 = await fetch(fallbackUrl);
+      docs = await res2.json();
+      if (docs.length > 0) {
+        fallbackNote = `<div style="background:#f0883e22;border:1px solid #f0883e44;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:13px;color:#f0883e;">该话题暂无负面帖子，以下展示该话题所有 ${docs.length} 条帖子</div>`;
+      }
+    }
 
     if (docs.length === 0) {
       postList.innerHTML = '<div class="loading-posts" style="color:#6b7280">暂无相关帖子</div>';
       return;
     }
 
-    postList.innerHTML = docs.map(d => {
+    postList.innerHTML = fallbackNote + docs.map(d => {
       const initial = (d.platform || '?')[0].toUpperCase();
       const subreddit = d.topic_l1 || '';
       const engLabel = d.engagement_count > 0 ? ` · ${d.engagement_count} 互动` : '';
