@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -23,6 +24,26 @@ logger = logging.getLogger(__name__)
 _static_dir = os.path.join(os.path.dirname(__file__), "static")
 
 
+async def _auto_seed_background():
+    """Check if DB is empty and auto-seed in background (non-blocking)."""
+    try:
+        from sqlalchemy import text
+        from app.db.session import async_session_factory
+        async with async_session_factory() as session:
+            row = await session.execute(text("SELECT COUNT(*) FROM documents"))
+            doc_count = row.scalar() or 0
+        if doc_count == 0:
+            logger.info("Database is empty, auto-seeding Reddit data in background...")
+            from app.api.seed import seed_reddit_data
+            async with async_session_factory() as session:
+                await seed_reddit_data(session)
+            logger.info("Auto-seed completed")
+        else:
+            logger.info("Database already has %d docs, skipping auto-seed", doc_count)
+    except Exception:
+        logger.exception("Auto-seed failed, dashboard will be empty until manual seed")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
@@ -33,24 +54,10 @@ async def lifespan(app: FastAPI):
     await init_db()
     logger.info("Database initialized")
 
-    # Auto-seed: if database is empty, fetch Reddit data automatically
+    # Launch auto-seed as background task (non-blocking, server starts immediately)
+    seed_task = None
     if not _IS_VERCEL:
-        try:
-            from sqlalchemy import text
-            from app.db.session import async_session_factory
-            async with async_session_factory() as session:
-                row = await session.execute(text("SELECT COUNT(*) FROM documents"))
-                doc_count = row.scalar() or 0
-            if doc_count == 0:
-                logger.info("Database is empty, auto-seeding Reddit data...")
-                from app.api.seed import seed_reddit_data
-                async with async_session_factory() as session:
-                    await seed_reddit_data(session)
-                logger.info("Auto-seed completed")
-            else:
-                logger.info("Database already has %d docs, skipping auto-seed", doc_count)
-        except Exception:
-            logger.exception("Auto-seed failed, dashboard will be empty until manual seed")
+        seed_task = asyncio.create_task(_auto_seed_background())
 
     # Skip scheduler on Vercel (serverless, no background process, no scikit-learn)
     scheduler = None
@@ -61,6 +68,8 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown
+    if seed_task and not seed_task.done():
+        seed_task.cancel()
     if scheduler:
         scheduler.shutdown(wait=False)
         logger.info("Scheduler stopped")
