@@ -349,10 +349,15 @@ async def seed_reddit_data(session: AsyncSession = Depends(get_session)):
     brand = "Trip.com"
     today = date.today()
 
-    # Drop and recreate all tables (picks up new columns like summary_cn)
+    # Ensure tables exist, then clean all data using the same session
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
+    await session.execute(text("DELETE FROM daily_aspect_metrics"))
+    await session.execute(text("DELETE FROM daily_metrics"))
+    await session.execute(text("DELETE FROM event_docs"))
+    await session.execute(text("DELETE FROM events"))
+    await session.execute(text("DELETE FROM documents"))
+    await session.flush()
 
     # ===== 1. Fetch real Reddit posts =====
     all_posts = []
@@ -494,9 +499,7 @@ async def seed_reddit_data(session: AsyncSession = Depends(get_session)):
             "created": created, "text": entry["text"], "author": entry["author"],
         })
 
-    # ===== 5. Group by aspect and create events (clear old first) =====
-    await session.execute(text("DELETE FROM event_docs"))
-    await session.execute(text("DELETE FROM events"))
+    # ===== 5. Group by aspect and create events =====
     # Use both negative docs AND neutral docs about problems to create events
     problem_docs = [d for d in doc_records if d["sentiment"] == "neg"]
     # Also include neutral docs for problem-related aspects
@@ -563,10 +566,7 @@ async def seed_reddit_data(session: AsyncSession = Depends(get_session)):
         for doc in cluster_docs:
             session.add(EventDoc(event_id=event_id, doc_id=doc["doc_id"]))
 
-    # ===== 6. Daily metrics (clear old data first) =====
-    await session.execute(text("DELETE FROM daily_metrics"))
-    await session.execute(text("DELETE FROM daily_aspect_metrics"))
-
+    # ===== 6. Daily metrics =====
     date_groups = {}
     for doc in doc_records:
         d = doc["created"].date()
