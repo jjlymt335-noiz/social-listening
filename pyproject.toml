@@ -16,13 +16,15 @@ dependencies = [
     "apscheduler>=3.10",
     # HTTP client (for Gemini API)
     "httpx>=0.27",
-    # ML / NLP
-    "scikit-learn>=1.5",
-    "numpy>=1.26",
+    # NLP
     "langdetect>=1.0.9",
 ]
 
 [project.optional-dependencies]
+ml = [
+    "scikit-learn>=1.5",
+    "numpy>=1.26",
+]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",

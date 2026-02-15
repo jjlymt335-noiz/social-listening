@@ -3,7 +3,6 @@
 import asyncio
 import json
 import logging
-import random
 import re
 import uuid
 from datetime import date, datetime, timedelta, timezone
@@ -486,7 +485,7 @@ async def seed_reddit_data(session: AsyncSession = Depends(get_session)):
             topic_l1=f"r/{entry['subreddit']}",
             aspect=aspect,
             sentiment=sentiment,
-            intensity=random.randint(2, 5) if sentiment == "neg" else random.randint(1, 3),
+            intensity=3 if sentiment == "neg" else (2 if sentiment == "pos" else 1),
             engagement_count=entry["score"] + entry["num_comments"],
         )
         session.add(doc)
@@ -528,13 +527,12 @@ async def seed_reddit_data(session: AsyncSession = Depends(get_session)):
             continue
 
         cluster_docs = docs[:min(len(docs), 15)]
-        total_for_event = len(cluster_docs) + random.randint(3, 10)
         neg_in_cluster = len([d for d in cluster_docs if d["sentiment"] == "neg"])
         neg_ratio = round(neg_in_cluster / max(len(cluster_docs), 1), 3)
 
-        if total_for_event > 30 and neg_ratio > 0.5:
+        if len(cluster_docs) >= 10 and neg_ratio > 0.5:
             severity = "P0"
-        elif total_for_event > 10:
+        elif len(cluster_docs) >= 5:
             severity = "P1"
         else:
             severity = "P2"
@@ -552,7 +550,7 @@ async def seed_reddit_data(session: AsyncSession = Depends(get_session)):
             status="open" if (datetime.now(timezone.utc) - latest).total_seconds() < 86400 else "monitoring",
             start_time=earliest,
             last_update_time=latest,
-            cluster_size=total_for_event,
+            cluster_size=len(cluster_docs),
             neg_ratio=neg_ratio,
             region_group="GLOBAL",
             summary=f"Reddit 用户集中反馈「{aspect_cn.get(aspect, aspect)}」问题，{len(cluster_docs)} 条原帖命中，负面占比 {neg_ratio*100:.0f}%",
@@ -584,19 +582,6 @@ async def seed_reddit_data(session: AsyncSession = Depends(get_session)):
                 ac[dd["aspect"]]["neg"] += 1
         for asp, counts in ac.items():
             session.add(DailyAspectMetrics(date=d, brand=brand, aspect=asp, volume=counts["vol"], neg_count=counts["neg"]))
-
-    # Baseline for dates without Reddit data
-    for i in range(30):
-        d = today - timedelta(days=29 - i)
-        if d not in date_groups:
-            bv = random.randint(50, 200)
-            neg = int(bv * random.uniform(0.05, 0.2))
-            pos = int(bv * random.uniform(0.3, 0.5))
-            neu = bv - neg - pos
-            session.add(DailyMetrics(date=d, brand=brand, volume_total=bv, pos_count=pos, neu_count=neu, neg_count=neg))
-            for asp in random.sample(ASPECTS, k=random.randint(3, 5)):
-                v = random.randint(5, 40)
-                session.add(DailyAspectMetrics(date=d, brand=brand, aspect=asp, volume=v, neg_count=int(v * random.uniform(0.1, 0.3))))
 
     await session.commit()
 

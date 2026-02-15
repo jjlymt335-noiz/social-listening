@@ -11,7 +11,8 @@ from app.api.metrics import router as metrics_router
 from app.api.seed import router as seed_router
 from app.db.session import init_db
 from app.geo.mappings import validate_no_duplicate_codes
-from app.scheduler.jobs import start_scheduler
+
+_IS_VERCEL = bool(os.environ.get("VERCEL"))
 
 logging.basicConfig(
     level=logging.INFO,
@@ -32,9 +33,10 @@ async def lifespan(app: FastAPI):
     await init_db()
     logger.info("Database initialized")
 
-    # Skip scheduler on Vercel (serverless has no persistent background process)
+    # Skip scheduler on Vercel (serverless, no background process, no scikit-learn)
     scheduler = None
-    if not os.environ.get("VERCEL"):
+    if not _IS_VERCEL:
+        from app.scheduler.jobs import start_scheduler
         scheduler = start_scheduler()
 
     yield
