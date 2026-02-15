@@ -262,7 +262,7 @@
 <!-- 图表 + 事件列表 -->
 <div class="grid-2">
   <div class="card">
-    <h3>每日声量与情感分布 (30天)</h3>
+    <h3>每周声量与情感分布</h3>
     <div class="chart-container">
       <canvas id="dailyChart"></canvas>
     </div>
@@ -540,13 +540,35 @@ async function loadDailyMetrics() {
     document.getElementById('statVolume').textContent = totalVol.toLocaleString();
     document.getElementById('statNegRatio').textContent = totalVol > 0 ? (totalNeg / totalVol * 100).toFixed(1) + '%' : '-';
 
-    const labels = sorted.map(d => {
-      const parts = d.date.split('-');
-      return parts[1] + '/' + parts[2];
+    // Aggregate daily data into weekly buckets (Mon-Sun)
+    function getWeekStart(dateStr) {
+      const d = new Date(dateStr + 'T00:00:00');
+      const day = d.getDay(); // 0=Sun
+      const diff = day === 0 ? 6 : day - 1; // shift so Mon=0
+      d.setDate(d.getDate() - diff);
+      return d.toISOString().slice(0, 10);
+    }
+    const weekMap = {};
+    for (const d of sorted) {
+      const wk = getWeekStart(d.date);
+      if (!weekMap[wk]) weekMap[wk] = { pos: 0, neu: 0, neg: 0 };
+      weekMap[wk].pos += d.pos_count;
+      weekMap[wk].neu += d.neu_count;
+      weekMap[wk].neg += d.neg_count;
+    }
+    const weekKeys = Object.keys(weekMap).sort();
+    const labels = weekKeys.map(wk => {
+      const s = wk.split('-');
+      const start = s[1] + '/' + s[2];
+      const end = new Date(wk + 'T00:00:00');
+      end.setDate(end.getDate() + 6);
+      const em = String(end.getMonth() + 1).padStart(2, '0');
+      const ed = String(end.getDate()).padStart(2, '0');
+      return start + '-' + em + '/' + ed;
     });
-    const posData = sorted.map(d => d.pos_count);
-    const neuData = sorted.map(d => d.neu_count);
-    const negData = sorted.map(d => d.neg_count);
+    const posData = weekKeys.map(wk => weekMap[wk].pos);
+    const neuData = weekKeys.map(wk => weekMap[wk].neu);
+    const negData = weekKeys.map(wk => weekMap[wk].neg);
 
     if (dailyChart) dailyChart.destroy();
     dailyChart = new Chart(document.getElementById('dailyChart'), {
